@@ -1,0 +1,161 @@
+﻿@page "/"
+@using LibTvsPlayer.DataTypes
+@using LibTvsPlayer.Helpers
+@using LibTvsPlayer.Services
+@using SixLabors.ImageSharp.PixelFormats
+@inject IJSRuntime JSRuntime
+@inject CollectTimestampedTvsChunkRefs _collectTimestampedTvsChunkRefs
+@inject ReadTvsChunk _readTvsChunk
+@inject TileConfHelperV2 _tileConfHelper
+@inject ApplyFrameSkipping _applyFrameSkipping
+
+<PageTitle>TvsPlayer</PageTitle>
+
+<style type="text/css">
+    canvas {
+        border: 1px solid black;
+    }
+</style>
+
+<div class="card mb-2" style="width: 70ex;">
+    <div class="card-header">Player controller</div>
+    <div class="card-body">
+        <div class="mb-2">
+            <InputFile OnChange="LoadTvsFile" accept=".tvs" />
+        </div>
+        <p>Status: @_debug</p>
+        <div class="mb-3">
+            <label for="_timestamps" class="form-label">Timestamp list (select one):</label>
+            <select class="form-select" id="_timestamps" @onchange="TimestampSelected">
+                @foreach (var (ts, index) in _timestamps.Select((ts, index) => (ts, index)))
+                {
+                    <option value="@index">@((ts.IsKeyFrame) ? $"{ts.Timestamp} *" : $"{ts.Timestamp}")</option>
+                }
+            </select>
+        </div>
+    </div>
+</div>
+
+<canvas width="@_screenWidth" height="@_screenHeight" @ref="_canvas">
+</canvas>
+
+@code {
+    private ElementReference _canvas;
+    private string _debug = "...";
+    private IReadOnlyList<TimestampedTvsChunkRef> _timestamps = Array.Empty<TimestampedTvsChunkRef>();
+    private ReadAsyncDelegate _readAsync = async (buffer, position) => throw new NotImplementedException();
+    private int _screenWidth = 640;
+    private int _screenHeight = 480;
+
+    private async Task TimestampSelected(ChangeEventArgs e)
+    {
+        if (!int.TryParse(e.Value?.ToString() ?? "", out int index))
+        {
+            return;
+        }
+
+        var decodeKeyRecord = new DecodeKeyRecord(
+            _tileConfHelper
+        );
+
+        var tsRef = _timestamps[index];
+
+        var keyRecords = await _readTvsChunk.ReadAsync(
+            _readAsync,
+            tsRef.Chunk
+        );
+
+        foreach (var keyRecord in keyRecords)
+        {
+            if (tsRef.Timestamp < keyRecord.Timestamp)
+            {
+                break; // played enough as user requested.
+            }
+
+            var changes = decodeKeyRecord.Consume(keyRecord);
+            if (changes.ScreenSizeChanged)
+            {
+                _screenWidth = decodeKeyRecord.ScreenWidth;
+                _screenHeight = decodeKeyRecord.ScreenHeight;
+            }
+            if (changes.RenderJpeg != null)
+            {
+                try
+                {
+                    using var image = SixLabors.ImageSharp.Image.Load<Rgba32>(changes.RenderJpeg.Jpeg);
+                    var src = new byte[image.Width * image.Height * 4];
+                    image.CopyPixelDataTo(src);
+
+                    await JSRuntime.InvokeVoidAsync(
+                        "render32bppBitmapToCanvas",
+                        _canvas,
+                        src,
+                        image.Width,
+                        image.Height,
+                        changes.RenderJpeg.Tx,
+                        changes.RenderJpeg.Ty
+                    );
+                }
+                catch
+                {
+                    // This JPEG data may be corrupted, as some TVS files have been reported to contain such data. In that case, we just skip rendering this frame.
+                }
+            }
+            if (changes.Render32bppBitmaps != null)
+            {
+                foreach (var cmd in changes.Render32bppBitmaps)
+                {
+                    await JSRuntime.InvokeVoidAsync(
+                        "render32bppBitmapToCanvas",
+                        _canvas,
+                        cmd.Bits,
+                        cmd.Width,
+                        cmd.Height,
+                        cmd.Tx,
+                        cmd.Ty
+                    );
+                }
+            }
+        }
+
+        _debug = $"Timestamp {tsRef.Timestamp} rendered!";
+        StateHasChanged();
+    }
+
+    private async Task LoadTvsFile(InputFileChangeEventArgs e)
+    {
+        _debug = "Scanning the entire structure of designated tvs file...";
+        StateHasChanged();
+
+        Memory<byte> tvsBody;
+        {
+            var tvsFile = e.File;
+            using var tvsFileStream = tvsFile.OpenReadStream(1024 * 1024 * 100);
+            using var ms = new MemoryStream();
+            await tvsFileStream.CopyToAsync(ms);
+            tvsBody = ms.ToArray();
+        }
+
+        // Replace this readAsync when it is ready to use a better implementation rather than the Blazor default Microsoft.AspNetCore.Components.Forms.IBrowserFile
+
+        _readAsync = async (buffer, position) =>
+        {
+            tvsBody
+                .Slice(Convert.ToInt32(position), buffer.Length)
+                .CopyTo(buffer);
+        };
+
+        var timestamps = await _collectTimestampedTvsChunkRefs
+            .CollectAsync(_readAsync);
+
+        _timestamps = _applyFrameSkipping
+            .Filter(timestamps);
+
+        StateHasChanged();
+
+        if (_timestamps.Any())
+        {
+            await TimestampSelected(new ChangeEventArgs { Value = "0" });
+        }
+    }
+}

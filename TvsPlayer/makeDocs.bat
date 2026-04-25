@@ -1,0 +1,1 @@
+dotnet publish -o publish -c:Release -p:GHPages=true -p:GHPagesBase=/TvsPlayer/ && robocopy /mir publish\wwwroot ..\docs
