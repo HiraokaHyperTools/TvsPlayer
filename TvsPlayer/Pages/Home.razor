@@ -96,9 +96,18 @@
                         changes.RenderJpeg.Ty
                     );
                 }
-                catch
+                catch (Exception ex)
                 {
                     // This JPEG data may be corrupted, as some TVS files have been reported to contain such data. In that case, we just skip rendering this frame.
+                    await JSRuntime.InvokeVoidAsync(
+                        "renderBlockError",
+                        _canvas,
+                        ex + "",
+                        changes.RenderJpeg.Width,
+                        changes.RenderJpeg.Height,
+                        changes.RenderJpeg.Tx,
+                        changes.RenderJpeg.Ty
+                    );
                 }
             }
             if (changes.Render32bppBitmaps != null)
@@ -109,6 +118,34 @@
                         "render32bppBitmapToCanvas",
                         _canvas,
                         cmd.Bits,
+                        cmd.Width,
+                        cmd.Height,
+                        cmd.Tx,
+                        cmd.Ty
+                    );
+                }
+            }
+            if (changes.CopyBlock != null)
+            {
+                await JSRuntime.InvokeVoidAsync(
+                    "copyBlock",
+                    _canvas,
+                    changes.CopyBlock.Srcx,
+                    changes.CopyBlock.Srcy,
+                    changes.CopyBlock.Width,
+                    changes.CopyBlock.Height,
+                    changes.CopyBlock.Tx,
+                    changes.CopyBlock.Ty
+                );
+            }
+            if (changes.RenderBlockErrors != null)
+            {
+                foreach (var cmd in changes.RenderBlockErrors)
+                {
+                    await JSRuntime.InvokeVoidAsync(
+                        "renderBlockError",
+                        _canvas,
+                        cmd.Exception + "",
                         cmd.Width,
                         cmd.Height,
                         cmd.Tx,

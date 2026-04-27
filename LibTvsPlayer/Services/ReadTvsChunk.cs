@@ -23,12 +23,12 @@ namespace LibTvsPlayer.Services
             ReadAsyncDelegate readAsync,
             TvsChunk chunk)
         {
+            var compressedData = new byte[chunk.CompressedSize];
+            await readAsync(compressedData, chunk.ChunkPosition);
+            // remove zlib header (2 bytes) and decompress
+            using var compressedStream = new MemoryStream(compressedData, 2, compressedData.Length - 2, false);
             using var sourceStream = new DeflateStream(
-                new ReadAsyncToStreamProxy(
-                    readAsync,
-                    chunk.ChunkPosition + 2,
-                    chunk.CompressedSize - 2
-                ),
+                compressedStream,
                 CompressionMode.Decompress
             );
             using var keyFileStream = new MemoryStream();

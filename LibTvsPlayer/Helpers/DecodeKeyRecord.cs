@@ -31,7 +31,9 @@ namespace LibTvsPlayer.Helpers
         public record Changes(
             bool ScreenSizeChanged = false,
             RenderJpegCmd? RenderJpeg = null,
-            IReadOnlyList<Render32bppBitmapCmd>? Render32bppBitmaps = null);
+            IReadOnlyList<Render32bppBitmapCmd>? Render32bppBitmaps = null,
+            CopyBlockCmd? CopyBlock = null,
+            IReadOnlyList<RenderBlockErrorCmd>? RenderBlockErrors = null);
 
         public Changes Consume(KeyRecord keyRecord)
         {
@@ -106,6 +108,7 @@ namespace LibTvsPlayer.Helpers
             else if (dataType == 0x0C)
             {
                 var list = new List<Render32bppBitmapCmd>();
+                var errors = new List<RenderBlockErrorCmd>();
 
                 var paletteTag = keyRecord.KeyTags
                     .SingleOrDefault(tag => true
@@ -199,26 +202,38 @@ namespace LibTvsPlayer.Helpers
                                         }
                                     }
                                 }
+
+                                list.Add(
+                                    new Render32bppBitmapCmd(
+                                        Bits: pixels,
+                                        Width: cxBitmap,
+                                        Height: cyBitmap,
+                                        Tx: transferBlock.X,
+                                        Ty: transferBlock.Y
+                                    )
+                                );
                             }
-                            catch
+                            catch (Exception ex)
                             {
-                                // decoder or data error may occur, skipping them simply
+                                errors.Add(
+                                    new RenderBlockErrorCmd(
+                                        Exception: ex,
+                                        Width: cxBitmap,
+                                        Height: cyBitmap,
+                                        Tx: transferBlock.X,
+                                        Ty: transferBlock.Y
+                                    )
+                                );
                             }
 
-                            list.Add(
-                                new Render32bppBitmapCmd(
-                                    Bits: pixels,
-                                    Width: cxBitmap,
-                                    Height: cyBitmap,
-                                    Tx: transferBlock.X,
-                                    Ty: transferBlock.Y
-                                )
-                            );
                         }
                     }
                 }
 
-                return new Changes(Render32bppBitmaps: list.AsReadOnly()); // done
+                return new Changes(
+                    Render32bppBitmaps: list.AsReadOnly(),
+                    RenderBlockErrors: errors.AsReadOnly()
+                ); // done
             }
             // JPEG
             else if (dataType == 0x0D)
@@ -284,6 +299,50 @@ namespace LibTvsPlayer.Helpers
                     return new Changes(
                         RenderJpeg: new RenderJpegCmd(
                             Jpeg: jpegBytes,
+                            Width: transferBlock.Width,
+                            Height: transferBlock.Height,
+                            Tx: transferBlock.X,
+                            Ty: transferBlock.Y
+                        )
+                    );
+                }
+            }
+            // fill?
+            else if (dataType == 0x0A)
+            {
+                var tileConfs = _tileConfHelper.GetTileConfsFromBlockConf([]);
+
+                var transferBlocks = ComputeTransferBlocks(
+                    ScreenWidth,
+                    ScreenHeight,
+                    blockIndex,
+                    tileConfs
+                );
+
+                var transferBlock = transferBlocks.Single();
+
+                var cx = Convert.ToUInt16(transferBlock.Width);
+                var cy = Convert.ToUInt16(transferBlock.Height);
+
+                var tag19Tag = keyRecord.KeyTags
+                    .SingleOrDefault(tag => true
+                        && tag.Tag == 0x19
+                        && tag.Value.Length == 2
+                    );
+
+                if (tag19Tag != null)
+                {
+                    var transferSourceBlocks = ComputeTransferBlocks(
+                        ScreenWidth,
+                        ScreenHeight,
+                        BinaryPrimitives.ReadUInt16LittleEndian(tag19Tag.Value.Span),
+                        tileConfs
+                    );
+
+                    return new Changes(
+                        CopyBlock: new CopyBlockCmd(
+                            Srcx: transferSourceBlocks[0].X,
+                            Srcy: transferSourceBlocks[0].Y,
                             Width: transferBlock.Width,
                             Height: transferBlock.Height,
                             Tx: transferBlock.X,

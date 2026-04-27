@@ -28,11 +28,11 @@
     </div>
     <script src="_framework/blazor.webassembly.js" autostart="false"></script>
     <script>
-        function fillInitial(canvas, w, h) {
+        function copyBlock(canvas, sx, sy, w, h, tx, ty) {
             const ctx = canvas.getContext("2d");
 
-            ctx.fillStyle = "rgb(64, 64, 64)";
-            ctx.fillRect(0, 0, w, h);
+            const imageData = ctx.getImageData(sx, sy, w, h);
+            ctx.putImageData(imageData, tx, ty);
         }
 
         function render32bppBitmapToCanvas(canvas, bytes, w, h, tx, ty) {
@@ -49,8 +49,25 @@
             );
             ctx.putImageData(imageData, tx, ty);
         }
+
+        function renderBlockError(canvas, ex, w, h, tx, ty) {
+            const ctx = canvas.getContext("2d");
+
+            ctx.fillStyle = `rgb(0, 0, 0)`;
+            ctx.strokeStyle = ``;
+            ctx.fillRect(tx, ty, w, h);
+
+            ctx.fillStyle = ``;
+            ctx.strokeStyle = `rgb(222, 0, 0)`;
+            ctx.strokeRect(tx, ty, w - 1, h - 1);
+            ctx.beginPath();
+            ctx.moveTo(tx, ty);
+            ctx.lineTo(tx + w - 1, ty + h - 1);
+            ctx.moveTo(tx + w - 1, ty);
+            ctx.lineTo(tx, ty + h - 1);
+            ctx.stroke();
+        }
     </script>
-    <script src="brotliloader.min.js" type="module"></script>
     <script src="brotliloader.min.js" type="module"></script>
 </body>
 
