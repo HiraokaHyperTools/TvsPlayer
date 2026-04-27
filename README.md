@@ -105,7 +105,7 @@ The interpretation of the tag byte seems to depend on the record type.
 
 | Tag | Len | What |
 |-----|-----|------|
-| `0x00` | 1 | DataType 0x0C |
+| `0x00` | 1 | DataType 0x0D |
 | `0x11` | (Any) | The JPEG header part |
 | `0x12` | 4 | ? |
 | `0x19` | 2 | The sequential block index |
