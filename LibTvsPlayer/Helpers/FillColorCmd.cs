@@ -6,9 +6,10 @@ using System.Threading.Tasks;
 
 namespace LibTvsPlayer.Helpers
 {
-    public record class CopyBlockCmd(
-        int Srcx,
-        int Srcy,
+    public record class FillColorCmd(
+        byte R,
+        byte G,
+        byte B,
         int Width,
         int Height,
         int Tx,

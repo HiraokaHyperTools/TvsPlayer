@@ -32,7 +32,7 @@ namespace LibTvsPlayer.Helpers
             bool ScreenSizeChanged = false,
             RenderJpegCmd? RenderJpeg = null,
             IReadOnlyList<Render32bppBitmapCmd>? Render32bppBitmaps = null,
-            CopyBlockCmd? CopyBlock = null,
+            FillColorCmd? FillColor = null,
             IReadOnlyList<RenderBlockErrorCmd>? RenderBlockErrors = null);
 
         public Changes Consume(KeyRecord keyRecord)
@@ -324,25 +324,24 @@ namespace LibTvsPlayer.Helpers
                 var cx = Convert.ToUInt16(transferBlock.Width);
                 var cy = Convert.ToUInt16(transferBlock.Height);
 
-                var tag19Tag = keyRecord.KeyTags
+                var tag1CTag = keyRecord.KeyTags
                     .SingleOrDefault(tag => true
-                        && tag.Tag == 0x19
+                        && tag.Tag == 0x1C
                         && tag.Value.Length == 2
                     );
 
-                if (tag19Tag != null)
+                if (tag1CTag != null)
                 {
-                    var transferSourceBlocks = ComputeTransferBlocks(
-                        ScreenWidth,
-                        ScreenHeight,
-                        BinaryPrimitives.ReadUInt16LittleEndian(tag19Tag.Value.Span),
-                        tileConfs
-                    );
+                    var word = BinaryPrimitives.ReadUInt16LittleEndian(tag1CTag.Value.Span);
+                    var r = (byte)(((word >> 8) & 0xF) * 17);
+                    var g = (byte)(((word >> 4) & 0xF) * 17);
+                    var b = (byte)(((word >> 0) & 0xF) * 17);
 
                     return new Changes(
-                        CopyBlock: new CopyBlockCmd(
-                            Srcx: transferSourceBlocks[0].X,
-                            Srcy: transferSourceBlocks[0].Y,
+                        FillColor: new FillColorCmd(
+                            R: r,
+                            G: g,
+                            B: b,
                             Width: transferBlock.Width,
                             Height: transferBlock.Height,
                             Tx: transferBlock.X,

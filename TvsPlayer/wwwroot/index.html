@@ -28,11 +28,12 @@
     </div>
     <script src="_framework/blazor.webassembly.js"></script>
     <script>
-        function copyBlock(canvas, sx, sy, w, h, tx, ty) {
+        function fillColor(canvas, r, g, b, w, h, tx, ty) {
             const ctx = canvas.getContext("2d");
 
-            const imageData = ctx.getImageData(sx, sy, w, h);
-            ctx.putImageData(imageData, tx, ty);
+            ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+            ctx.strokeStyle = ``;
+            ctx.fillRect(tx, ty, w, h);
         }
 
         function render32bppBitmapToCanvas(canvas, bytes, w, h, tx, ty) {

@@ -1,7 +1,7 @@
 {
   "mainAssemblyName": "TvsPlayer",
   "resources": {
-    "hash": "sha256-WBCgMActe5eswu20hGAv0lV8vUIBkv7JnzFvxsUWgS0=",
+    "hash": "sha256-j/sBxmRmwAu4105WFcoLL+8uBecZFos4pK9A/n+PeGs=",
     "jsModuleNative": {
       "dotnet.native.js": "sha256-2pOC04INM7Ss1c5iZuyCyP1mtlsNH6IVA4aPSVWVAM0="
     },
@@ -18,7 +18,7 @@
     },
     "coreAssembly": {},
     "assembly": {
-      "LibTvsPlayer.wasm": "sha256-D1ZxQqNguZsYZM4tZbDfLDVSXL8sF+x+IWKgZHPu1Lw=",
+      "LibTvsPlayer.wasm": "sha256-vpdF7esCZpRucOyMsg60tBeM3nhnLkBfSaG+Sf2X3YY=",
       "Microsoft.AspNetCore.Components.wasm": "sha256-woecyUIyfPS7dyUIHs3Hl3ROLI4ryI8G61eeaMsi9dA=",
       "Microsoft.AspNetCore.Components.Web.wasm": "sha256-HGM8D2S0ETcHzdOI1c0ksNg+YRUqAhD2a+CxQyVj8Pc=",
       "Microsoft.AspNetCore.Components.WebAssembly.wasm": "sha256-QLJRIXH9XRtmWpuBYxuhljsCm+5644aXRpM/3GfOQI0=",
@@ -55,7 +55,7 @@
       "System.Text.Json.wasm": "sha256-NmjLQOjAw4HlzSjuFNLuVWf5GfEZTbO6tYY0IRhVU2Y=",
       "System.Text.RegularExpressions.wasm": "sha256-NL5sBkQtOmwbpwZ0yb6AlsOfFlNN4wrT6EdNssIKLIg=",
       "System.Threading.Tasks.Parallel.wasm": "sha256-eU3GahvxbwvZfhD5nMKbk0W8cncpKtbdzyQW7RCbi94=",
-      "TvsPlayer.wasm": "sha256-k3t4mOVQmPJITbBUHHlhG9VSVAg9+zf5DAaYCPWo2m4="
+      "TvsPlayer.wasm": "sha256-81g2/EOIVgOUHccdOYtjC1VG8klIQEfoq4ZvDR08uH4="
     }
   },
   "cacheBootResources": true,

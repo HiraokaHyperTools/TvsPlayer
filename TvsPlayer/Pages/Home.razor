@@ -125,17 +125,18 @@
                     );
                 }
             }
-            if (changes.CopyBlock != null)
+            if (changes.FillColor != null)
             {
                 await JSRuntime.InvokeVoidAsync(
-                    "copyBlock",
+                    "fillColor",
                     _canvas,
-                    changes.CopyBlock.Srcx,
-                    changes.CopyBlock.Srcy,
-                    changes.CopyBlock.Width,
-                    changes.CopyBlock.Height,
-                    changes.CopyBlock.Tx,
-                    changes.CopyBlock.Ty
+                    changes.FillColor.R,
+                    changes.FillColor.G,
+                    changes.FillColor.B,
+                    changes.FillColor.Width,
+                    changes.FillColor.Height,
+                    changes.FillColor.Tx,
+                    changes.FillColor.Ty
                 );
             }
             if (changes.RenderBlockErrors != null)
