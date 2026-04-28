@@ -323,18 +323,20 @@ namespace LibTvsPlayer.Helpers
                 var cx = Convert.ToUInt16(transferBlock.Width);
                 var cy = Convert.ToUInt16(transferBlock.Height);
 
-                var tag1CTag = keyRecord.KeyTags
+                var paletteTag = keyRecord.KeyTags
                     .SingleOrDefault(tag => true
                         && tag.Tag == 0x1C
-                        && tag.Value.Length == 2
                     );
 
-                if (tag1CTag != null)
+                if (paletteTag != null)
                 {
-                    var word = BinaryPrimitives.ReadUInt16LittleEndian(tag1CTag.Value.Span);
-                    var r = (byte)(((word >> 8) & 0xF) * 17);
-                    var g = (byte)(((word >> 4) & 0xF) * 17);
-                    var b = (byte)(((word >> 0) & 0xF) * 17);
+                    var palette = paletteTag.Value;
+
+                    var colors = ConvertDeltaPaletteToColors(palette, ClutEntryUnitSize, 1).Span;
+
+                    var r = colors[0];
+                    var g = colors[1];
+                    var b = colors[2];
 
                     return new Changes(
                         FillColor: new FillColorCmd(

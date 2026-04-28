@@ -46,6 +46,7 @@
     private ReadAsyncDelegate _readAsync = async (buffer, position) => throw new NotImplementedException();
     private int _screenWidth = 640;
     private int _screenHeight = 480;
+    private byte[] _offScreen;
 
     private async Task TimestampSelected(ChangeEventArgs e)
     {
@@ -65,6 +66,16 @@
             tsRef.Chunk
         );
 
+        var anyChanged = false;
+
+        _offScreen = new byte[4 * _screenWidth * _screenHeight];
+
+        var writeToOffScreen = new WriteToOffScreen(
+            _offScreen,
+            _screenWidth,
+            _screenHeight
+        );
+
         foreach (var keyRecord in keyRecords)
         {
             if (tsRef.Timestamp < keyRecord.Timestamp)
@@ -77,6 +88,18 @@
             {
                 _screenWidth = decodeKeyRecord.ScreenWidth;
                 _screenHeight = decodeKeyRecord.ScreenHeight;
+
+                int newLength = 4 * _screenWidth * _screenHeight;
+                if (newLength != _offScreen.Length)
+                {
+                    _offScreen = new byte[newLength];
+
+                    writeToOffScreen = new WriteToOffScreen(
+                        _offScreen,
+                        _screenWidth,
+                        _screenHeight
+                    );
+                }
             }
             if (changes.RenderJpeg != null)
             {
@@ -86,50 +109,39 @@
                     var src = new byte[image.Width * image.Height * 4];
                     image.CopyPixelDataTo(src);
 
-                    await JSRuntime.InvokeVoidAsync(
-                        "render32bppBitmapToCanvas",
-                        _canvas,
-                        src,
+                    writeToOffScreen.Bitblt(
+                        src.AsSpan(),
                         image.Width,
                         image.Height,
                         changes.RenderJpeg.Tx,
                         changes.RenderJpeg.Ty
                     );
+
+                    anyChanged = true;
                 }
-                catch (Exception ex)
+                catch
                 {
-                    // This JPEG data may be corrupted, as some TVS files have been reported to contain such data. In that case, we just skip rendering this frame.
-                    await JSRuntime.InvokeVoidAsync(
-                        "renderBlockError",
-                        _canvas,
-                        ex + "",
-                        changes.RenderJpeg.Width,
-                        changes.RenderJpeg.Height,
-                        changes.RenderJpeg.Tx,
-                        changes.RenderJpeg.Ty
-                    );
+                    // ignore
                 }
             }
             if (changes.Render32bppBitmaps != null)
             {
                 foreach (var cmd in changes.Render32bppBitmaps)
                 {
-                    await JSRuntime.InvokeVoidAsync(
-                        "render32bppBitmapToCanvas",
-                        _canvas,
+                    writeToOffScreen.Bitblt(
                         cmd.Bits,
                         cmd.Width,
                         cmd.Height,
                         cmd.Tx,
                         cmd.Ty
                     );
+
+                    anyChanged = true;
                 }
             }
             if (changes.FillColor != null)
             {
-                await JSRuntime.InvokeVoidAsync(
-                    "fillColor",
-                    _canvas,
+                writeToOffScreen.FillColor(
                     changes.FillColor.R,
                     changes.FillColor.G,
                     changes.FillColor.B,
@@ -138,22 +150,37 @@
                     changes.FillColor.Tx,
                     changes.FillColor.Ty
                 );
+
+                anyChanged = true;
             }
             if (changes.RenderBlockErrors != null)
             {
                 foreach (var cmd in changes.RenderBlockErrors)
                 {
-                    await JSRuntime.InvokeVoidAsync(
-                        "renderBlockError",
-                        _canvas,
+                    writeToOffScreen.WriteError(
                         cmd.Exception + "",
                         cmd.Width,
                         cmd.Height,
                         cmd.Tx,
                         cmd.Ty
                     );
+
+                    anyChanged = true;
                 }
             }
+        }
+
+        if (anyChanged)
+        {
+            await JSRuntime.InvokeVoidAsync(
+                "render32bppBitmapToCanvas",
+                _canvas,
+                _offScreen,
+                _screenWidth,
+                _screenHeight,
+                0,
+                0
+            );
         }
 
         _debug = $"Timestamp {tsRef.Timestamp} rendered!";
