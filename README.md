@@ -24,9 +24,9 @@ Notes: data is basically formatted in little-endian (Intel byte order) based.
 |------------|-------|
 | `0x1C01` | Session initialization?
 | `0x0219` | ?
-| `0x0402` | ?
-| `0x0502` | Screen update?
-| `0x0602` | Screen update? also some optional
+| `0x0402` | Fills
+| `0x0502` | RLEs
+| `0x0602` | JPEGs
 | `0x0702` | Key frame?
 | `0x070C` | ?
 | `0x0802` | Screen update?
@@ -75,44 +75,13 @@ The interpretation of the tag byte seems to depend on the record type.
 | `0x00` | 1 | ? |
 | `0xFE` | 1 | Flag value? |
 
-### RecordType `0x0502` tags
-
-#### A kind of RLE
-
-| Tag | Len | What |
-|-----|-----|------|
-| `0x00` | 1 | DataType 0x0C |
-| `0x19` | 2 | The sequential block index |
-| `0x1B` | absent, 1 or more | Tiles configuration in bit masks: 0 skip, 1 draw |
-| `0x1C` | (Any) | Palette data (incremental palette) |
-| `0x1D` | (Any) | Packed RLE blobs |
-| `0xFE` | 1 | Flag value? |
-
 ### RecordType `0x0402` tags
 
-#### Block fill?
-
-| Tag | Len | What |
-|-----|-----|------|
-| `0x00` | 1 | DataType 0x0A |
-| `0x19` | 2 | The sequential block index |
-| `0x1C` | 2 | Fill color? |
-| `0xFE` | 1 | Flag value? |
+### RecordType `0x0502` tags
 
 ### RecordType `0x0602` tags
 
-#### JPEG
-
-| Tag | Len | What |
-|-----|-----|------|
-| `0x00` | 1 | DataType 0x0D |
-| `0x11` | (Any) | The JPEG header part |
-| `0x12` | 4 | ? |
-| `0x19` | 2 | The sequential block index |
-| `0x1D` | (Any) | The JPEG data blobs for appending |
-| `0xFE` | 1 | Flag value? |
-
-### RecordType `0x0702` tags
+### RecordType `0x070C` tags
 
 | Tag | Len | What |
 |-----|-----|------|
@@ -123,3 +92,59 @@ The interpretation of the tag byte seems to depend on the record type.
 | `0xFC` | 4 | ? |
 | `0xFE` | 1 | Flag value? |
 | `0xFF` | 4 | ? |
+
+## RecordType 0x??02 tags
+
+These RecordTypes seem to be screen update records.
+
+Check the single byte of a tag 0x00.
+It helps to decide an image format.
+
+| DataType | Description |
+|----------|-------------|
+| 0x0A | Block fill |
+| 0x0B | 1-bpp bitmaps |
+| 0x0C | A kind of RLE |
+| 0x0D | JPEG |
+
+### Block fill
+
+| Tag | Len | What |
+|-----|-----|------|
+| `0x00` | 1 | DataType 0x0A |
+| `0x19` | 2 | The sequential block index |
+| `0x1C` | 2 or 3 | Fill color |
+| `0xFE` | 1 | Flag value? |
+
+### 1-bpp bitmaps
+
+| Tag | Len | What |
+|-----|-----|------|
+| `0x00` | 1 | DataType 0x0B |
+| `0x19` | 2 | The sequential block index |
+| `0x1B` | absent, 1 or more | Tiles configuration in bit masks: 0 skip, 1 draw |
+| `0x1C` | (Any) | 2 colors palette data (incremental palette) |
+| `0x1D` | (Any) | Packed 1-bpp bitmaps, LSB first |
+| `0xFE` | 1 | Flag value? |
+
+### A kind of RLE
+
+| Tag | Len | What |
+|-----|-----|------|
+| `0x00` | 1 | DataType 0x0C |
+| `0x19` | 2 | The sequential block index |
+| `0x1B` | absent, 1 or more | Tiles configuration in bit masks: 0 skip, 1 draw |
+| `0x1C` | (Any) | Palette data (incremental palette) |
+| `0x1D` | (Any) | Packed RLE blobs |
+| `0xFE` | 1 | Flag value? |
+
+### JPEG
+
+| Tag | Len | What |
+|-----|-----|------|
+| `0x00` | 1 | DataType 0x0D |
+| `0x11` | (Any) | The JPEG header part |
+| `0x12` | 4 | ? |
+| `0x19` | 2 | The sequential block index |
+| `0x1D` | (Any) | The JPEG data blobs for appending |
+| `0xFE` | 1 | Flag value? |

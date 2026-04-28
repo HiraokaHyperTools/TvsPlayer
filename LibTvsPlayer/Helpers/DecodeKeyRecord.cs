@@ -108,7 +108,6 @@ namespace LibTvsPlayer.Helpers
             else if (dataType == 0x0C)
             {
                 var list = new List<Render32bppBitmapCmd>();
-                var errors = new List<RenderBlockErrorCmd>();
 
                 var paletteTag = keyRecord.KeyTags
                     .SingleOrDefault(tag => true
@@ -136,7 +135,7 @@ namespace LibTvsPlayer.Helpers
                     var palette = paletteTag.Value;
                     var packedRle = packedRleTag.Value;
 
-                    var colors = ConvertDeltaPaletteToColors(palette, ClutEntryUnitSize).Span;
+                    var colors = ConvertDeltaPaletteToColors(palette, ClutEntryUnitSize, 256).Span;
 
                     var numColorsDefined = palette.Length / ClutEntryUnitSize;
 
@@ -209,30 +208,30 @@ namespace LibTvsPlayer.Helpers
                                         Width: cxBitmap,
                                         Height: cyBitmap,
                                         Tx: transferBlock.X,
-                                        Ty: transferBlock.Y
+                                        Ty: transferBlock.Y,
+                                        Partial: false
                                     )
                                 );
                             }
-                            catch (Exception ex)
+                            catch
                             {
-                                errors.Add(
-                                    new RenderBlockErrorCmd(
-                                        Exception: ex,
+                                list.Add(
+                                    new Render32bppBitmapCmd(
+                                        Bits: pixels,
                                         Width: cxBitmap,
                                         Height: cyBitmap,
                                         Tx: transferBlock.X,
-                                        Ty: transferBlock.Y
+                                        Ty: transferBlock.Y,
+                                        Partial: true
                                     )
                                 );
                             }
-
                         }
                     }
                 }
 
                 return new Changes(
-                    Render32bppBitmaps: list.AsReadOnly(),
-                    RenderBlockErrors: errors.AsReadOnly()
+                    Render32bppBitmaps: list.AsReadOnly()
                 ); // done
             }
             // JPEG
@@ -307,7 +306,7 @@ namespace LibTvsPlayer.Helpers
                     );
                 }
             }
-            // fill?
+            // fill
             else if (dataType == 0x0A)
             {
                 var tileConfs = _tileConfHelper.GetTileConfsFromBlockConf([]);
@@ -349,6 +348,103 @@ namespace LibTvsPlayer.Helpers
                         )
                     );
                 }
+            }
+            // 1-bpp bitmaps
+            else if (dataType == 0x0B)
+            {
+                var list = new List<Render32bppBitmapCmd>();
+
+                var paletteTag = keyRecord.KeyTags
+                    .SingleOrDefault(tag => true
+                        && tag.Tag == 0x1C
+                    );
+
+                var packedBitmapsTag = keyRecord.KeyTags
+                    .SingleOrDefault(tag => true
+                        && tag.Tag == 0x1D
+                    );
+
+                var blockConfTag = keyRecord.KeyTags
+                    .SingleOrDefault(tag => true
+                        && tag.Tag == 0x1B
+                    );
+
+                var blockConf = (blockConfTag != null)
+                    ? blockConfTag.Value.Span
+                    : ReadOnlySpan<byte>.Empty;
+
+                var tileConfs = _tileConfHelper.GetTileConfsFromBlockConf(blockConf, true);
+
+                if (paletteTag != null && packedBitmapsTag != null)
+                {
+                    var palette = paletteTag.Value;
+                    var packedBitmaps = packedBitmapsTag.Value;
+
+                    var colors = ConvertDeltaPaletteToColors(palette, ClutEntryUnitSize, 2).Span;
+
+                    if (true
+                        && ParsePackedRleBlocks(packedBitmaps) is PackedRleBlock[] packedBitmapBlocks
+                        && packedBitmapBlocks != null
+                        && ComputeTransferBlocks(ScreenWidth, ScreenHeight, blockIndex, tileConfs) is var transferBlocks
+                        && transferBlocks.Length == packedBitmapBlocks.Length
+                    )
+                    {
+                        foreach (var transferBlock in transferBlocks)
+                        {
+                            var cxBitmap = transferBlock.Width;
+                            var cyBitmap = transferBlock.Height;
+
+                            var pixels = new byte[4 * cxBitmap * cyBitmap];
+                            var pixelsSpan = pixels.AsSpan();
+
+                            var readSpan = packedBitmapBlocks[transferBlock.Index].Rle.Span;
+
+                            byte currentByte = 0;
+                            var readAt = 0;
+                            var partial = false;
+                            for (int writeAt = 0, maxWrite = cxBitmap * cyBitmap; writeAt < maxWrite; writeAt++)
+                            {
+                                if ((writeAt & 7) == 0)
+                                {
+                                    if (readSpan.Length <= readAt)
+                                    {
+                                        // block is broken, it is possible.
+                                        partial = true;
+                                        break;
+                                    }
+                                    currentByte = readSpan[readAt];
+                                    readAt += 1;
+                                }
+
+                                var which = ((currentByte & 1) != 0) ? 0 : 1;
+
+                                colors
+                                    .Slice(4 * which, 4)
+                                    .CopyTo(
+                                        pixelsSpan
+                                            .Slice(4 * writeAt, 4)
+                                    );
+
+                                currentByte >>= 1;
+                            }
+
+                            list.Add(
+                                new Render32bppBitmapCmd(
+                                    Bits: pixels,
+                                    Width: cxBitmap,
+                                    Height: cyBitmap,
+                                    Tx: transferBlock.X,
+                                    Ty: transferBlock.Y,
+                                    Partial: partial
+                                )
+                            );
+                        }
+                    }
+                }
+
+                return new Changes(
+                    Render32bppBitmaps: list.AsReadOnly()
+                ); // done
             }
 
             return _noop; // done
@@ -405,15 +501,16 @@ namespace LibTvsPlayer.Helpers
 
         private ReadOnlyMemory<byte> ConvertDeltaPaletteToColors(
             ReadOnlyMemory<byte> palette,
-            int entryUnitSize)
+            int entryUnitSize,
+            int maxCount)
         {
-            var paletteColors = new byte[1024].AsMemory();
+            var paletteColors = new byte[4 * maxCount].AsMemory();
             var paletteColorsSpan = paletteColors.Span;
             if (entryUnitSize == 2)
             {
                 var current = 0;
                 var span = palette.Span;
-                for (int i = 0; i < 256 && 2 <= span.Length; i++)
+                for (int i = 0; i < maxCount && 2 <= span.Length; i++)
                 {
                     var delta = BinaryPrimitives.ReadUInt16LittleEndian(span);
                     current += delta;
@@ -432,7 +529,7 @@ namespace LibTvsPlayer.Helpers
             {
                 var current = 0U;
                 var span = palette.Span;
-                for (int i = 0; i < 256 && 3 <= span.Length; i++)
+                for (int i = 0; i < maxCount && 3 <= span.Length; i++)
                 {
                     var delta = BinaryPrimitives.ReadUInt32LittleEndian([span[0], span[1], span[2], 0,]);
                     current += delta;

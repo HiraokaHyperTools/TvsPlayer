@@ -11,13 +11,30 @@ namespace LibTvsPlayer.Services
     {
         public static readonly TileConfHelperV2 Default = new TileConfHelperV2();
 
-        public IReadOnlyList<TileConf> GetTileConfsFromBlockConf(ReadOnlySpan<byte> blockConf)
+        public IReadOnlyList<TileConf> GetTileConfsFromBlockConf(
+            ReadOnlySpan<byte> blockConf, 
+            bool oneByOne = false)
         {
             var list = new List<TileConf>();
             var even = blockConf.Length == 0 || (blockConf[0] & 1) == 0;
             var count = 0;
             var state = 0;
             var offset = 0;
+
+            void AddOf(int count, int xOffset)
+            {
+                if (oneByOne)
+                {
+                    for (int x = 0; x < count; x++)
+                    {
+                        list.Add(new TileConf(1, 1, xOffset + x, 0));
+                    }
+                }
+                else
+                {
+                    list.Add(new TileConf(count, 1, xOffset, 0));
+                }
+            }
 
             if (even)
             {
@@ -52,7 +69,7 @@ namespace LibTvsPlayer.Services
                         }
                         else
                         {
-                            list.Add(new TileConf(count, 1, offset, 0));
+                            AddOf(count, offset);
                             offset += count;
                             state = 2;
                             count = 1;
@@ -78,7 +95,7 @@ namespace LibTvsPlayer.Services
             }
             if (state == 1 && count != 0)
             {
-                list.Add(new TileConf(count, 1, offset, 0));
+                AddOf(count, offset);
             }
 
             return list.AsReadOnly();

@@ -11,5 +11,6 @@ namespace LibTvsPlayer.Helpers
         int Width,
         int Height,
         int Tx,
-        int Ty);
+        int Ty,
+        bool Partial);
 }
