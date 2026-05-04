@@ -102,10 +102,20 @@ It helps to decide an image format.
 
 | DataType | Description |
 |----------|-------------|
+| 0x09 | RLE09 |
 | 0x0A | Block fill |
 | 0x0B | 1-bpp bitmaps |
-| 0x0C | A kind of RLE |
+| 0x0C | RLE0C |
 | 0x0D | JPEG |
+
+### RLE09
+
+| Tag | Len | What |
+|-----|-----|------|
+| `0x00` | 1 | DataType 0x09 |
+| `0x01` | 16 | RECT (x, y, cx, cy) |
+| `0x05` | (varlen) | RLE09 blob |
+| `0xFE` | 1 | Flag value? |
 
 ### Block fill
 
@@ -123,19 +133,19 @@ It helps to decide an image format.
 | `0x00` | 1 | DataType 0x0B |
 | `0x19` | 2 | The sequential block index |
 | `0x1B` | absent, 1 or more | Tiles configuration in bit masks: 0 skip, 1 draw |
-| `0x1C` | (Any) | 2 colors palette data (incremental palette) |
-| `0x1D` | (Any) | Packed 1-bpp bitmaps, LSB first |
+| `0x1C` | (varlen) | 2 colors palette data (incremental palette) |
+| `0x1D` | (varlen) | Packed 1-bpp bitmaps, LSB first |
 | `0xFE` | 1 | Flag value? |
 
-### A kind of RLE
+### RLE0C
 
 | Tag | Len | What |
 |-----|-----|------|
 | `0x00` | 1 | DataType 0x0C |
 | `0x19` | 2 | The sequential block index |
 | `0x1B` | absent, 1 or more | Tiles configuration in bit masks: 0 skip, 1 draw |
-| `0x1C` | (Any) | Palette data (incremental palette) |
-| `0x1D` | (Any) | Packed RLE blobs |
+| `0x1C` | (varlen) | Palette data (incremental palette) |
+| `0x1D` | (varlen) | Packed RLE0C blobs |
 | `0xFE` | 1 | Flag value? |
 
 ### JPEG
@@ -143,8 +153,8 @@ It helps to decide an image format.
 | Tag | Len | What |
 |-----|-----|------|
 | `0x00` | 1 | DataType 0x0D |
-| `0x11` | (Any) | The JPEG header part |
+| `0x11` | (varlen) | The JPEG header part |
 | `0x12` | 4 | ? |
 | `0x19` | 2 | The sequential block index |
-| `0x1D` | (Any) | The JPEG data blobs for appending |
+| `0x1D` | (varlen) | The JPEG data blobs for appending |
 | `0xFE` | 1 | Flag value? |
