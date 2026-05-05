@@ -8,6 +8,7 @@
 @inject ReadTvsChunk _readTvsChunk
 @inject TileConfHelperV2 _tileConfHelper
 @inject ApplyFrameSkipping _applyFrameSkipping
+@inject DecodeKeyRecord _decodeKeyRecord
 
 <PageTitle>TvsPlayer</PageTitle>
 
@@ -46,7 +47,7 @@
     private ReadAsyncDelegate _readAsync = async (buffer, position) => throw new NotImplementedException();
     private int _screenWidth = 640;
     private int _screenHeight = 480;
-    private byte[] _offScreen;
+    private byte[] _offScreen = new byte[0];
 
     private async Task TimestampSelected(ChangeEventArgs e)
     {
@@ -54,10 +55,6 @@
         {
             return;
         }
-
-        var decodeKeyRecord = new DecodeKeyRecord(
-            _tileConfHelper
-        );
 
         var tsRef = _timestamps[index];
 
@@ -76,6 +73,8 @@
             _screenHeight
         );
 
+        var state = new DecodeKeyRecord.State();
+
         foreach (var keyRecord in keyRecords)
         {
             if (tsRef.Timestamp < keyRecord.Timestamp)
@@ -83,11 +82,11 @@
                 break; // played enough as user requested.
             }
 
-            var changes = decodeKeyRecord.Consume(keyRecord);
+            var changes = _decodeKeyRecord.Consume(keyRecord, state);
             if (changes.ScreenSizeChanged)
             {
-                _screenWidth = decodeKeyRecord.ScreenWidth;
-                _screenHeight = decodeKeyRecord.ScreenHeight;
+                _screenWidth = state.ScreenWidth;
+                _screenHeight = state.ScreenHeight;
 
                 int newLength = 4 * _screenWidth * _screenHeight;
                 if (newLength != _offScreen.Length)
@@ -139,17 +138,20 @@
                     anyChanged = true;
                 }
             }
-            if (changes.FillColor != null)
+            if (changes.FillColors != null)
             {
-                writeToOffScreen.FillColor(
-                    changes.FillColor.R,
-                    changes.FillColor.G,
-                    changes.FillColor.B,
-                    changes.FillColor.Width,
-                    changes.FillColor.Height,
-                    changes.FillColor.Tx,
-                    changes.FillColor.Ty
-                );
+                foreach (var cmd in changes.FillColors)
+                {
+                    writeToOffScreen.FillColor(
+                        cmd.R,
+                        cmd.G,
+                        cmd.B,
+                        cmd.Width,
+                        cmd.Height,
+                        cmd.Tx,
+                        cmd.Ty
+                    );
+                }
 
                 anyChanged = true;
             }

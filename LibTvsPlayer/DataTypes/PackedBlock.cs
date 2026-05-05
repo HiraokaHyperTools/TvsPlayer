@@ -6,5 +6,5 @@ using System.Threading.Tasks;
 
 namespace LibTvsPlayer.DataTypes
 {
-    public record PackedRleBlock(ReadOnlyMemory<byte> Rle);
+    public record PackedBlock(ReadOnlyMemory<byte> Block);
 }

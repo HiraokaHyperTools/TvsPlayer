@@ -1,1 +1,1 @@
-dotnet publish -o publish -c:Release -p:GHPages=true -p:GHPagesBase=/TvsPlayer/ && robocopy /mir publish\wwwroot ..\docs
+rmdir /s "%~dp0\publish" & dotnet publish -o publish -c:Release -p:GHPages=true -p:GHPagesBase=/TvsPlayer/ && robocopy /mir publish\wwwroot ..\docs

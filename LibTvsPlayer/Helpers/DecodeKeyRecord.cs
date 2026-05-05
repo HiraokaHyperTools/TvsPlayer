@@ -1,30 +1,34 @@
 ﻿using LibTvsPlayer.DataTypes;
 using LibTvsPlayer.Services;
-using System;
 using System.Buffers.Binary;
-using System.Collections.Generic;
-using System.Drawing;
-using System.Linq;
-using System.Reflection.PortableExecutable;
-using System.Text;
-using System.Threading.Tasks;
-using System.Threading.Tasks.Dataflow;
+using System.Data;
 
 namespace LibTvsPlayer.Helpers
 {
     public class DecodeKeyRecord
     {
+        private readonly ParsePackedBlocksHelper _parsePackedBlocksHelper;
+        private readonly ParsePackedRectBlockHelper _parsePackedRectBlockHelper;
+        private readonly ParseRect21 _parseRect21;
         private readonly TileConfHelperV2 _tileConfHelper;
         private readonly Changes _noop = new();
 
-        public int ScreenWidth { get; set; }
-        public int ScreenHeight { get; set; }
-        public int ClutEntryUnitSize { get; set; }
-        public ReadOnlyMemory<byte>? JpegHeader { get; set; }
+        public class State
+        {
+            public int ScreenWidth { get; set; }
+            public int ScreenHeight { get; set; }
+            public int ClutEntryUnitSize { get; set; }
+        }
 
         public DecodeKeyRecord(
-            TileConfHelperV2 tileConfHelper)
+            TileConfHelperV2 tileConfHelper,
+            ParseRect21 parseRect21,
+            ParsePackedRectBlockHelper parsePackedRectBlockHelper,
+            ParsePackedBlocksHelper parsePackedBlocksHelper)
         {
+            _parsePackedBlocksHelper = parsePackedBlocksHelper;
+            _parsePackedRectBlockHelper = parsePackedRectBlockHelper;
+            _parseRect21 = parseRect21;
             _tileConfHelper = tileConfHelper;
         }
 
@@ -32,10 +36,10 @@ namespace LibTvsPlayer.Helpers
             bool ScreenSizeChanged = false,
             RenderJpegCmd? RenderJpeg = null,
             IReadOnlyList<Render32bppBitmapCmd>? Render32bppBitmaps = null,
-            FillColorCmd? FillColor = null,
+            IReadOnlyList<FillColorCmd>? FillColors = null,
             IReadOnlyList<RenderBlockErrorCmd>? RenderBlockErrors = null);
 
-        public Changes Consume(KeyRecord keyRecord)
+        public Changes Consume(KeyRecord keyRecord, State state)
         {
             if (keyRecord.RecordType == 0x070C)
             {
@@ -66,18 +70,18 @@ namespace LibTvsPlayer.Helpers
 
                 var tag01Span = keyRecord.KeyTags[1].Value.Span;
 
-                ScreenWidth = BinaryPrimitives.ReadInt32LittleEndian(tag00Span);
-                ScreenHeight = BinaryPrimitives.ReadInt32LittleEndian(tag01Span);
+                state.ScreenWidth = BinaryPrimitives.ReadInt32LittleEndian(tag00Span);
+                state.ScreenHeight = BinaryPrimitives.ReadInt32LittleEndian(tag01Span);
 
                 var tag06Tag = keyRecord.KeyTags.SingleOrDefault(it => it.Tag == 0x06);
                 if (tag06Tag != null)
                 {
                     var tag06 = BinaryPrimitives.ReadInt32LittleEndian(tag06Tag.Value.Span);
-                    ClutEntryUnitSize = (tag06 == 0x50) ? 3 : 2;
+                    state.ClutEntryUnitSize = (tag06 == 0x50) ? 3 : 2;
                 }
                 else
                 {
-                    ClutEntryUnitSize = 2;
+                    state.ClutEntryUnitSize = 2;
                 }
 
                 return new Changes(ScreenSizeChanged: true); // done
@@ -132,14 +136,19 @@ namespace LibTvsPlayer.Helpers
                         var palette = paletteTag.Value;
                         var packedRle = packedRleTag.Value;
 
-                        var colors = ConvertDeltaPaletteToColors(palette, ClutEntryUnitSize, 256).Span;
+                        var colors = ConvertDeltaPaletteToColors(
+                            palette: palette,
+                            entryUnitSize: state.ClutEntryUnitSize,
+                            maxCount: 256
+                        )
+                            .Span;
 
-                        var numColorsDefined = palette.Length / ClutEntryUnitSize;
+                        var numColorsDefined = palette.Length / state.ClutEntryUnitSize;
 
                         if (true
-                            && ParsePackedRleBlocks(packedRle) is PackedRleBlock[] packedRleBlocks
+                            && _parsePackedBlocksHelper.ParsePackedBlocks(packedRle) is PackedBlock[] packedRleBlocks
                             && packedRleBlocks != null
-                            && ComputeTransferBlocks(ScreenWidth, ScreenHeight, blockIndex, tileConfs) is var transferBlocks
+                            && ComputeTransferBlocks(state.ScreenWidth, state.ScreenHeight, blockIndex, tileConfs) is var transferBlocks
                             && transferBlocks.Length == packedRleBlocks.Length
                         )
                         {
@@ -156,48 +165,13 @@ namespace LibTvsPlayer.Helpers
                                 try
                                 {
                                     var packedRleBlock = packedRleBlocks[transferBlock.Index];
-                                    var rle = packedRleBlock.Rle.Span;
-                                    while (rle.Length != 0)
-                                    {
-                                        var control = rle[0];
-                                        rle = rle.Slice(1);
-                                        if (wideMode ? (control < 0xFF) : (control < 0x80))
-                                        {
-                                            colors.Slice(4 * control, 4).CopyTo(pixelsSpan);
-                                            pixelsSpan = pixelsSpan.Slice(4);
-                                        }
-                                        else if (control < 0xFF)
-                                        {
-                                            var count = rle[0];
-                                            rle = rle.Slice(1);
 
-                                            var color = (byte)(control - 0x80);
-                                            var colorSpan = colors.Slice(4 * color, 4);
-
-                                            for (int x = 0; x < count; x++)
-                                            {
-                                                colorSpan.CopyTo(pixelsSpan);
-                                                pixelsSpan = pixelsSpan.Slice(4);
-                                            }
-
-                                        }
-                                        else
-                                        {
-                                            wideMode = true;
-
-                                            var what = rle[0];
-                                            var howMany = rle[1];
-                                            rle = rle.Slice(2);
-
-                                            var colorSpan = colors.Slice(4 * what, 4);
-
-                                            for (int x = 0; x < howMany; x++)
-                                            {
-                                                colorSpan.CopyTo(pixelsSpan);
-                                                pixelsSpan = pixelsSpan.Slice(4);
-                                            }
-                                        }
-                                    }
+                                    var partial = !DecodeRle(
+                                        pixelsSpan: pixels.AsSpan(),
+                                        rle: packedRleBlock.Block.Span,
+                                        colors: colors,
+                                        wideMode: ref wideMode
+                                    );
 
                                     list.Add(
                                         new Render32bppBitmapCmd(
@@ -206,7 +180,7 @@ namespace LibTvsPlayer.Helpers
                                             Height: cyBitmap,
                                             Tx: transferBlock.X,
                                             Ty: transferBlock.Y,
-                                            Partial: false
+                                            Partial: partial
                                         )
                                     );
                                 }
@@ -239,10 +213,6 @@ namespace LibTvsPlayer.Helpers
                             && tag.Tag == 0x11
                             && tag.Value.Length == 177
                         );
-                    if (jpegHeaderTag != null)
-                    {
-                        JpegHeader = jpegHeaderTag.Value;
-                    }
 
                     var jpegDataTag = keyRecord.KeyTags
                         .SingleOrDefault(tag => true
@@ -253,15 +223,15 @@ namespace LibTvsPlayer.Helpers
                         );
 
                     if (true
-                        && JpegHeader is ReadOnlyMemory<byte> jpegHeader
+                        && jpegHeaderTag != null
                         && jpegDataTag != null
                     )
                     {
                         var tileConfs = _tileConfHelper.GetTileConfsFromBlockConf([]);
 
                         var transferBlocks = ComputeTransferBlocks(
-                            ScreenWidth,
-                            ScreenHeight,
+                            state.ScreenWidth,
+                            state.ScreenHeight,
                             blockIndex,
                             tileConfs
                         );
@@ -271,21 +241,21 @@ namespace LibTvsPlayer.Helpers
                         var cx = Convert.ToUInt16(transferBlock.Width);
                         var cy = Convert.ToUInt16(transferBlock.Height);
 
-                        var jpegBytes = new byte[jpegHeader.Length + jpegDataTag.Value.Length];
+                        var jpegBytes = new byte[jpegHeaderTag.Value.Length + jpegDataTag.Value.Length];
 
-                        jpegHeader
+                        jpegHeaderTag.Value
                             .CopyTo(
                                 jpegBytes
                                     .AsMemory(
                                         0,
-                                        jpegHeader.Length
+                                        jpegHeaderTag.Value.Length
                                     )
                             );
                         jpegDataTag.Value
                             .CopyTo(
                                 jpegBytes
                                     .AsMemory(
-                                        jpegHeader.Length,
+                                        jpegHeaderTag.Value.Length,
                                         jpegDataTag.Value.Length
                                     )
                             );
@@ -309,8 +279,8 @@ namespace LibTvsPlayer.Helpers
                     var tileConfs = _tileConfHelper.GetTileConfsFromBlockConf([]);
 
                     var transferBlocks = ComputeTransferBlocks(
-                        ScreenWidth,
-                        ScreenHeight,
+                        state.ScreenWidth,
+                        state.ScreenHeight,
                         blockIndex,
                         tileConfs
                     );
@@ -329,22 +299,29 @@ namespace LibTvsPlayer.Helpers
                     {
                         var palette = paletteTag.Value;
 
-                        var colors = ConvertDeltaPaletteToColors(palette, ClutEntryUnitSize, 1).Span;
+                        var colors = ConvertDeltaPaletteToColors(
+                            palette: palette,
+                            entryUnitSize: state.ClutEntryUnitSize,
+                            maxCount: 1
+                        )
+                            .Span;
 
                         var r = colors[0];
                         var g = colors[1];
                         var b = colors[2];
 
                         return new Changes(
-                            FillColor: new FillColorCmd(
-                                R: r,
-                                G: g,
-                                B: b,
-                                Width: transferBlock.Width,
-                                Height: transferBlock.Height,
-                                Tx: transferBlock.X,
-                                Ty: transferBlock.Y
-                            )
+                            FillColors: [
+                                new FillColorCmd(
+                                    R: r,
+                                    G: g,
+                                    B: b,
+                                    Width: transferBlock.Width,
+                                    Height: transferBlock.Height,
+                                    Tx: transferBlock.X,
+                                    Ty: transferBlock.Y
+                                )
+                            ]
                         );
                     }
                 }
@@ -379,12 +356,17 @@ namespace LibTvsPlayer.Helpers
                         var palette = paletteTag.Value;
                         var packedBitmaps = packedBitmapsTag.Value;
 
-                        var colors = ConvertDeltaPaletteToColors(palette, ClutEntryUnitSize, 2).Span;
+                        var colors = ConvertDeltaPaletteToColors(
+                            palette: palette,
+                            entryUnitSize: state.ClutEntryUnitSize,
+                            maxCount: 2
+                        )
+                            .Span;
 
                         if (true
-                            && ParsePackedRleBlocks(packedBitmaps) is PackedRleBlock[] packedBitmapBlocks
+                            && _parsePackedBlocksHelper.ParsePackedBlocks(packedBitmaps) is PackedBlock[] packedBitmapBlocks
                             && packedBitmapBlocks != null
-                            && ComputeTransferBlocks(ScreenWidth, ScreenHeight, blockIndex, tileConfs) is var transferBlocks
+                            && ComputeTransferBlocks(state.ScreenWidth, state.ScreenHeight, blockIndex, tileConfs) is var transferBlocks
                             && transferBlocks.Length == packedBitmapBlocks.Length
                         )
                         {
@@ -394,38 +376,12 @@ namespace LibTvsPlayer.Helpers
                                 var cyBitmap = transferBlock.Height;
 
                                 var pixels = new byte[4 * cxBitmap * cyBitmap];
-                                var pixelsSpan = pixels.AsSpan();
 
-                                var readSpan = packedBitmapBlocks[transferBlock.Index].Rle.Span;
-
-                                byte currentByte = 0;
-                                var readAt = 0;
-                                var partial = false;
-                                for (int writeAt = 0, maxWrite = cxBitmap * cyBitmap; writeAt < maxWrite; writeAt++)
-                                {
-                                    if ((writeAt & 7) == 0)
-                                    {
-                                        if (readSpan.Length <= readAt)
-                                        {
-                                            // block is broken, it is possible.
-                                            partial = true;
-                                            break;
-                                        }
-                                        currentByte = readSpan[readAt];
-                                        readAt += 1;
-                                    }
-
-                                    var which = ((currentByte & 1) != 0) ? 0 : 1;
-
-                                    colors
-                                        .Slice(4 * which, 4)
-                                        .CopyTo(
-                                            pixelsSpan
-                                                .Slice(4 * writeAt, 4)
-                                        );
-
-                                    currentByte >>= 1;
-                                }
+                                var partial = !DecodeMono(
+                                    pixelsSpan: pixels.AsSpan(),
+                                    raw: packedBitmapBlocks[transferBlock.Index].Block.Span,
+                                    colors: colors
+                                );
 
                                 list.Add(
                                     new Render32bppBitmapCmd(
@@ -548,10 +504,283 @@ namespace LibTvsPlayer.Helpers
                         Render32bppBitmaps: list.AsReadOnly()
                     ); // done
                 }
+                // multi fill
+                else if (dataType == 0x17)
+                {
+                    var paletteTag = keyRecord.KeyTags
+                        .SingleOrDefault(tag => true
+                            && tag.Tag == 0x1C
+                        );
 
+                    var rectsTag = keyRecord.KeyTags
+                        .SingleOrDefault(tag => true
+                            && tag.Tag == 0x21
+                        );
+
+                    if (paletteTag != null && rectsTag != null)
+                    {
+                        var palette = paletteTag.Value;
+
+                        var colors = ConvertDeltaPaletteToColors(
+                            palette: palette,
+                            entryUnitSize: state.ClutEntryUnitSize,
+                            maxCount: 1
+                        )
+                            .Span;
+
+                        var r = colors[0];
+                        var g = colors[1];
+                        var b = colors[2];
+
+                        var list = new List<FillColorCmd>();
+
+                        var rects = _parseRect21.Parse(rectsTag.Value.Span);
+
+                        foreach (var rect in rects)
+                        {
+                            list.Add(
+                                new FillColorCmd(
+                                    R: r,
+                                    G: g,
+                                    B: b,
+                                    Width: rect.Right - rect.Tx,
+                                    Height: rect.Bottom - rect.Ty,
+                                    Tx: rect.Tx,
+                                    Ty: rect.Ty
+                                )
+                            );
+                        }
+
+                        return new Changes(
+                            FillColors: list.AsReadOnly()
+                        );
+                    }
+                }
+                // multi 1-bpp bitmaps
+                else if (dataType == 0x08)
+                {
+                    var list = new List<Render32bppBitmapCmd>();
+
+                    var paletteTag = keyRecord.KeyTags
+                        .SingleOrDefault(tag => true
+                            && tag.Tag == 0x1C
+                        );
+
+                    var packedBlocksTag = keyRecord.KeyTags
+                        .SingleOrDefault(tag => true
+                            && tag.Tag == 0x1D
+                        );
+
+                    if (paletteTag != null && packedBlocksTag != null)
+                    {
+                        var palette = paletteTag.Value;
+                        var packedBlocks = packedBlocksTag.Value;
+
+                        var colors = ConvertDeltaPaletteToColors(
+                            palette: palette,
+                            entryUnitSize: state.ClutEntryUnitSize,
+                            maxCount: 2
+                        )
+                            .Span;
+
+                        if (true
+                            && _parsePackedBlocksHelper.ParsePackedBlocks(packedBlocks) is PackedBlock[] packedBlocks2
+                            && _parsePackedRectBlockHelper.Convert(packedBlocks2).ToArray() is PackedRectBlock[] packedRectBlocks
+                        )
+                        {
+                            foreach (var one in packedRectBlocks)
+                            {
+                                var cxBitmap = one.Right - one.Tx;
+                                var cyBitmap = one.Bottom - one.Ty;
+
+                                var pixels = new byte[4 * cxBitmap * cyBitmap];
+
+                                var partial = !DecodeMono(
+                                    pixelsSpan: pixels.AsSpan(),
+                                    raw: one.Block.Span,
+                                    colors: colors
+                                );
+
+                                list.Add(
+                                    new Render32bppBitmapCmd(
+                                        Bits: pixels,
+                                        Width: cxBitmap,
+                                        Height: cyBitmap,
+                                        Tx: one.Tx,
+                                        Ty: one.Ty,
+                                        Partial: partial
+                                    )
+                                );
+                            }
+                        }
+                    }
+
+                    return new Changes(
+                        Render32bppBitmaps: list.AsReadOnly()
+                    ); // done
+                }
+                // multi RLE0C
+                else if (dataType == 0x19)
+                {
+                    var list = new List<Render32bppBitmapCmd>();
+
+                    var paletteTag = keyRecord.KeyTags
+                        .SingleOrDefault(tag => true
+                            && tag.Tag == 0x1C
+                        );
+
+                    var packedBlocksTag = keyRecord.KeyTags
+                        .SingleOrDefault(tag => true
+                            && tag.Tag == 0x1D
+                        );
+
+                    if (paletteTag != null && packedBlocksTag != null)
+                    {
+                        var palette = paletteTag.Value;
+                        var packedBlocks = packedBlocksTag.Value;
+
+                        var colors = ConvertDeltaPaletteToColors(
+                            palette: palette,
+                            entryUnitSize: state.ClutEntryUnitSize,
+                            maxCount: 256
+                        )
+                            .Span;
+
+                        if (true
+                            && _parsePackedBlocksHelper.ParsePackedBlocks(packedBlocks) is PackedBlock[] packedBlocks2
+                            && _parsePackedRectBlockHelper.Convert(packedBlocks2).ToArray() is PackedRectBlock[] packedRectBlocks
+                        )
+                        {
+                            var wideMode = false;
+
+                            foreach (var one in packedRectBlocks)
+                            {
+                                var cxBitmap = one.Right - one.Tx;
+                                var cyBitmap = one.Bottom - one.Ty;
+
+                                var pixels = new byte[4 * cxBitmap * cyBitmap];
+
+                                var partial = !DecodeRle(
+                                    pixelsSpan: pixels.AsSpan(),
+                                    rle: one.Block.Span,
+                                    colors: colors,
+                                    wideMode: ref wideMode
+                                );
+
+                                list.Add(
+                                    new Render32bppBitmapCmd(
+                                        Bits: pixels,
+                                        Width: cxBitmap,
+                                        Height: cyBitmap,
+                                        Tx: one.Tx,
+                                        Ty: one.Ty,
+                                        Partial: partial
+                                    )
+                                );
+                            }
+                        }
+                    }
+
+                    return new Changes(
+                        Render32bppBitmaps: list.AsReadOnly()
+                    ); // done
+                }
             }
 
             return _noop; // done
+        }
+
+        private bool DecodeMono(
+            Span<byte> pixelsSpan,
+            ReadOnlySpan<byte> raw,
+            ReadOnlySpan<byte> colors
+        )
+        {
+            var b = colors.Slice(4, 4);
+            var w = colors.Slice(0, 4);
+
+            while (raw.Length != 0)
+            {
+                var thisByte = raw[0];
+                raw = raw.Slice(1);
+
+                for (int t = 0; t < 8; t++)
+                {
+                    if (pixelsSpan.Length < 4)
+                    {
+                        return false;
+                    }
+
+                    (((thisByte & (1 << t)) == 0) ? b : w).CopyTo(pixelsSpan);
+                    pixelsSpan = pixelsSpan.Slice(4);
+                }
+            }
+
+            return true;
+        }
+
+        private bool DecodeRle(
+            Span<byte> pixelsSpan,
+            ReadOnlySpan<byte> rle,
+            ReadOnlySpan<byte> colors,
+            ref bool wideMode
+        )
+        {
+            while (rle.Length != 0)
+            {
+                var control = rle[0];
+                rle = rle.Slice(1);
+                if (wideMode ? (control < 0xFF) : (control < 0x80))
+                {
+                    if (pixelsSpan.Length < 4)
+                    {
+                        return false;
+                    }
+                    colors.Slice(4 * control, 4).CopyTo(pixelsSpan);
+                    pixelsSpan = pixelsSpan.Slice(4);
+                }
+                else if (control < 0xFF)
+                {
+                    var count = rle[0];
+                    rle = rle.Slice(1);
+
+                    var color = (byte)(control - 0x80);
+                    var colorSpan = colors.Slice(4 * color, 4);
+
+                    for (int x = 0; x < count; x++)
+                    {
+                        if (pixelsSpan.Length < 4)
+                        {
+                            return false;
+                        }
+                        colorSpan.CopyTo(pixelsSpan);
+                        pixelsSpan = pixelsSpan.Slice(4);
+                    }
+
+                }
+                else
+                {
+                    wideMode = true;
+
+                    var what = rle[0];
+                    var howMany = rle[1];
+                    rle = rle.Slice(2);
+
+                    var colorSpan = colors.Slice(4 * what, 4);
+
+                    for (int x = 0; x < howMany; x++)
+                    {
+                        if (pixelsSpan.Length < 4)
+                        {
+                            return false;
+                        }
+                        colorSpan.CopyTo(pixelsSpan);
+                        pixelsSpan = pixelsSpan.Slice(4);
+                    }
+                }
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -649,35 +878,6 @@ namespace LibTvsPlayer.Helpers
                 }
             }
             return paletteColors;
-        }
-
-        private PackedRleBlock[]? ParsePackedRleBlocks(ReadOnlyMemory<byte> ptr)
-        {
-            var list = new List<PackedRleBlock>();
-
-            while (ptr.Length != 0)
-            {
-                if (ptr.Length < 3)
-                {
-                    return null;
-                }
-                var ver = ptr.Span[0];
-                ptr = ptr.Slice(1);
-                if (ver != 1)
-                {
-                    return null;
-                }
-                var len = BinaryPrimitives.ReadUInt16LittleEndian(ptr.Span);
-                ptr = ptr.Slice(2);
-                if (ptr.Length < len)
-                {
-                    return null;
-                }
-                list.Add(new PackedRleBlock(ptr.Slice(0, len)));
-                ptr = ptr.Slice(len);
-            }
-
-            return list.ToArray();
         }
     }
 }

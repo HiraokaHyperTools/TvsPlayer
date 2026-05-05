@@ -68,6 +68,24 @@ The interpretation of the tag byte seems to depend on the record type.
 | `0xFE` | 1 | Flag value? |
 | `0xFF` | 4 | Checksum? / hash value? |
 
+Format of a palette data (incremental palette)
+
+`0x3C`
+
+- set `accum = 0x0000` initially.
+- read next UINT16LE: `0x0RGB`
+- `accum += 0x0RGB`
+- use current `accum` as an absolute color `0x0RGB`
+- continue until end of read.
+
+`0x50`
+
+- set `accum = 0x000000` initially.
+- read next UINT24LE one entry: `0xRRGGBB`
+- `accum += 0xRRGGBB`
+- use current `accum` as an absolute color `0xRRGGBB`
+- continue until end of read.
+
 ### RecordType `0x0219` tags
 
 | Tag | Len | What |
@@ -76,6 +94,17 @@ The interpretation of the tag byte seems to depend on the record type.
 | `0xFE` | 1 | Flag value? |
 
 ### RecordType `0x0402` tags
+
+### RecordType `0x0419` tags
+
+#### RLE09
+
+| Tag | Len | What |
+|-----|-----|------|
+| `0x00` | 1 | DataType 0x09 |
+| `0x01` | 16 | RECT (x, y, cx, cy) |
+| `0x05` | (varlen) | RLE09 blob |
+| `0xFE` | 1 | Flag value? |
 
 ### RecordType `0x0502` tags
 
@@ -102,20 +131,13 @@ It helps to decide an image format.
 
 | DataType | Description |
 |----------|-------------|
-| 0x09 | RLE09 |
 | 0x0A | Block fill |
 | 0x0B | 1-bpp bitmaps |
 | 0x0C | RLE0C |
 | 0x0D | JPEG |
-
-### RLE09
-
-| Tag | Len | What |
-|-----|-----|------|
-| `0x00` | 1 | DataType 0x09 |
-| `0x01` | 16 | RECT (x, y, cx, cy) |
-| `0x05` | (varlen) | RLE09 blob |
-| `0xFE` | 1 | Flag value? |
+| 0x17 | Multi fill rect |
+| 0x18 | Multi 1-bpp bitmaps |
+| 0x19 | Multi RLE0C |
 
 ### Block fill
 
@@ -148,6 +170,22 @@ It helps to decide an image format.
 | `0x1D` | (varlen) | Packed RLE0C blobs |
 | `0xFE` | 1 | Flag value? |
 
+Every element of a packed array
+
+```
+BYTE signature; // 0x01
+UINT16LE packedBlockLen;
+BYTE packedBlock[]; // RLE0C
+```
+
+RLE0C
+
+- set `wideMode = false` initially.
+- read next byte as `control`.
+- if `wideMode ? (control < 0xFF) : (control < 0x80)`, then emit single pixel with color index `control`.
+- else if `control < 0xFF`, then read next byte as count. Emit a pixel with color index `(control - 0x80)` `count` times.
+- else, read 2 bytes `what` and `howMany` in this order. Emit a pixel with color index `what`, `howMany` times. Set `wideMode = true`.
+
 ### JPEG
 
 | Tag | Len | What |
@@ -158,3 +196,63 @@ It helps to decide an image format.
 | `0x19` | 2 | The sequential block index |
 | `0x1D` | (varlen) | The JPEG data blobs for appending |
 | `0xFE` | 1 | Flag value? |
+
+Notes: This is not a normal JPEG. It is currently unknown.
+
+### Multi fill rect
+
+| Tag | Len | What |
+|-----|-----|------|
+| `0x00` | 1 | DataType 0x17 |
+| `0x1C` | (varlen) | Palette data (incremental palette) |
+| `0x21` | (varlen) | Fill rects (UINT16LE tx, ty, right, bottom) |
+
+Notes: width = right - tx, height = bottom - ty
+
+### Multi 1-bpp bitmaps
+
+| Tag | Len | What |
+|-----|-----|------|
+| `0x00` | 1 | DataType 0x18 |
+| `0x1C` | (varlen) | Palette data (incremental palette) |
+| `0x1D` | (varlen) | Packed array of rect and 1-bpp bitmap |
+
+Every element of a packed array
+
+```
+BYTE signature; // 0x01
+UINT16LE packedBlockLen;
+BYTE packedBlock[];
+```
+
+packedBlock: rect and 1-bpp bitmap
+
+```
+UINT16LE tx, ty, right, bottom;
+BYTE block[]; // 1-bpp bitmap
+```
+
+Notes: No scanline alignment occurs against a 1-bpp bitmap.
+
+### Multi RLE0C
+
+| Tag | Len | What |
+|-----|-----|------|
+| `0x00` | 1 | DataType 0x19 |
+| `0x1C` | (varlen) | Palette data (incremental palette) |
+| `0x1D` | (varlen) | Packed array of rect and RLE0C |
+
+Every element of a packed array
+
+```
+BYTE signature; // 0x01
+UINT16LE packedBlockLen;
+BYTE packedBlock[];
+```
+
+packedBlock: rect and RLE0C
+
+```
+UINT16LE tx, ty, right, bottom;
+BYTE block[]; // RLE0C
+```

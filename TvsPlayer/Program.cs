@@ -23,6 +23,10 @@ namespace TvsPlayer
             builder.Services.AddSingleton<ReadTvsChunk>();
             builder.Services.AddSingleton(TileConfHelperV2.Default);
             builder.Services.AddSingleton<ApplyFrameSkipping>();
+            builder.Services.AddSingleton(ParseRect21.Default);
+            builder.Services.AddSingleton(ParsePackedRectBlockHelper.Default);
+            builder.Services.AddSingleton(ParsePackedBlocksHelper.Default);
+            builder.Services.AddSingleton<DecodeKeyRecord>();
 
             builder.Services.AddSingleton(new AppInfo(
                 Version: (typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "?")
