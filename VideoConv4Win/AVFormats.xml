@@ -1,0 +1,18 @@
+﻿<?xml version="1.0" encoding="utf-8" ?>
+<AVFormats>
+  <FFmpegVideo Display="mpeg4"
+               Description="FFmpeg: MPEG4 video format"
+               Options="-c:v libx264 -pix_fmt yuv420p"
+               FileExtension="mp4"
+               />
+  <FFmpegVideo Display="VP9 codec (better quality)"
+               Description="FFmpeg: WebM video format"
+               Options="-c:v libvpx-vp9 -b:v 5000k -pix_fmt yuv420p"
+               FileExtension="webm"
+               />
+  <FFmpegVideo Display="VP8 codec (faster)"
+               Description="FFmpeg: WebM video format"
+               Options="-c:v libvpx -b:v 5000k -pix_fmt yuv420p"
+               FileExtension="webm"
+               />
+</AVFormats>

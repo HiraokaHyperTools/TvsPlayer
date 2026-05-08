@@ -14,6 +14,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ソリューション項目
 		README.md = README.md
 	EndProjectSection
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "VideoConv4Win", "VideoConv4Win\VideoConv4Win.csproj", "{14FE381A-7333-4DE6-8E70-1F8C4E4334FF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -32,6 +34,10 @@ Global
 		{F240FB29-0E01-4614-9258-836E17299ECE}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{F240FB29-0E01-4614-9258-836E17299ECE}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{F240FB29-0E01-4614-9258-836E17299ECE}.Release|Any CPU.Build.0 = Release|Any CPU
+		{14FE381A-7333-4DE6-8E70-1F8C4E4334FF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{14FE381A-7333-4DE6-8E70-1F8C4E4334FF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{14FE381A-7333-4DE6-8E70-1F8C4E4334FF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{14FE381A-7333-4DE6-8E70-1F8C4E4334FF}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

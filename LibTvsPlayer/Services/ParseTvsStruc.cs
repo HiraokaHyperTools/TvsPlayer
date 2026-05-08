@@ -16,7 +16,8 @@ namespace LibTvsPlayer.Services
         public async Task<ParsedTvsStruc> ParseAsync(ReadAsyncDelegate readAsync)
         {
             var header = new byte[1024];
-            await readAsync(header, 0);
+            await readAsync(header, 0)
+                .ConfigureAwait(false);
 
             var headerDict = new Dictionary<string, string>();
 
@@ -55,13 +56,15 @@ namespace LibTvsPlayer.Services
             while (true)
             {
                 var cmd = new byte[3];
-                await readAsync(cmd, consumed);
+                await readAsync(cmd, consumed)
+                    .ConfigureAwait(false);
                 consumed += 3;
                 var cmdStr = Encoding.Latin1.GetString(cmd);
                 if (cmdStr == "END")
                 {
                     var crlf = new byte[2];
-                    await readAsync(crlf, consumed);
+                    await readAsync(crlf, consumed)
+                        .ConfigureAwait(false);
                     consumed += 2;
                     if (crlf[0] != '\r' || crlf[1] != '\n')
                     {
@@ -72,7 +75,8 @@ namespace LibTvsPlayer.Services
                 else if (cmdStr == "KEY")
                 {
                     var keyHeader = new byte[8];
-                    await readAsync(keyHeader, consumed);
+                    await readAsync(keyHeader, consumed)
+                        .ConfigureAwait(false);
                     consumed += 8;
                     var compressedChunkSize = BinaryPrimitives.ReadInt32LittleEndian(keyHeader.AsSpan(0));
                     var uncompressedChunkSize = BinaryPrimitives.ReadInt32LittleEndian(keyHeader.AsSpan(4));
