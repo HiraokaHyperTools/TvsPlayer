@@ -15,6 +15,7 @@ namespace VideoConv4Win
     public partial class Form1 : Form
     {
         private AVFormats _avFormats;
+        private readonly DecodeMouseRecord _decodeMouseRecord;
         private readonly ParseKey _parseKey;
         private readonly ParseTvsStruc _parseTvsStruc;
         private readonly DecodeKeyRecord _decodeKeyRecord;
@@ -27,8 +28,10 @@ namespace VideoConv4Win
             Func<ConvertProgressForm> newConvertProgressForm,
             DecodeKeyRecord decodeKeyRecord,
             ParseTvsStruc parseTvsStruc,
-            ParseKey parseKey)
+            ParseKey parseKey,
+            DecodeMouseRecord decodeMouseRecord)
         {
+            _decodeMouseRecord = decodeMouseRecord;
             _parseKey = parseKey;
             _parseTvsStruc = parseTvsStruc;
             _decodeKeyRecord = decodeKeyRecord;
@@ -90,6 +93,10 @@ namespace VideoConv4Win
             var cxScreen = Convert.ToInt32(_cx.Value);
             var cyScreen = Convert.ToInt32(_cy.Value);
             var offscreen = new byte[4 * cxScreen * cyScreen];
+            var mouseSave = new byte[4 * 32 * 32];
+            var mouseBitmap = new byte[4 * 32 * 32];
+            var mouseX = -1;
+            var mouseY = -1;
 
             var writeToOffScreen = new WriteToOffScreen(
                 offscreen,
@@ -130,10 +137,30 @@ namespace VideoConv4Win
                 var struc = await _parseTvsStruc.ParseAsync(readAsync);
 
                 var state = new DecodeKeyRecord.State();
+                var mouseState = new DecodeMouseRecord.State();
 
                 form._status.Text = "Rendering frames...";
                 form._progress.Value = 0;
                 form._progress.Maximum = struc.TvsChunks.Count;
+
+                async Task EmitScreenBufferAsync(int nTimes)
+                {
+                    if (0 <= mouseX)
+                    {
+                        writeToOffScreen.SaveTo(mouseSave, 32, 32, mouseX, mouseY);
+                        writeToOffScreen.BitbltSrcAlpha(mouseBitmap, 32, 32, mouseX, mouseY);
+                    }
+
+                    for (int x = 0; x < nTimes; x++)
+                    {
+                        await ffmpegPipe0.WriteAsync(offscreen);
+                    }
+
+                    if (0 <= mouseX)
+                    {
+                        writeToOffScreen.Bitblt(mouseSave, 32, 32, mouseX, mouseY);
+                    }
+                }
 
                 foreach (var chunkRef in struc.TvsChunks)
                 {
@@ -150,39 +177,63 @@ namespace VideoConv4Win
                         ct.ThrowIfCancellationRequested();
 
                         var numFramesGenerated = timestampByFps.Reach(keyRecord.Timestamp);
-                        for (int x = 0; x < numFramesGenerated; x++)
+                        if (numFramesGenerated != 0)
                         {
-                            await ffmpegPipe0.WriteAsync(offscreen);
+                            await EmitScreenBufferAsync(numFramesGenerated);
                         }
 
-                        var changes = _decodeKeyRecord.Consume(keyRecord, state);
-
-                        if (changes.Render32bppBitmaps != null)
                         {
-                            foreach (var cmd in changes.Render32bppBitmaps)
+                            var changes = _decodeKeyRecord.Consume(keyRecord, state);
+
+                            if (changes.Render32bppBitmaps != null)
                             {
-                                writeToOffScreen.Bitblt(
-                                    cmd.Bits,
-                                    cmd.Width,
-                                    cmd.Height,
-                                    cmd.Tx,
-                                    cmd.Ty
-                                );
+                                foreach (var cmd in changes.Render32bppBitmaps)
+                                {
+                                    writeToOffScreen.Bitblt(
+                                        cmd.Bits,
+                                        cmd.Width,
+                                        cmd.Height,
+                                        cmd.Tx,
+                                        cmd.Ty
+                                    );
+                                }
+                            }
+                            if (changes.FillColors != null)
+                            {
+                                foreach (var cmd in changes.FillColors)
+                                {
+                                    writeToOffScreen.FillColor(
+                                        cmd.R,
+                                        cmd.G,
+                                        cmd.B,
+                                        cmd.Width,
+                                        cmd.Height,
+                                        cmd.Tx,
+                                        cmd.Ty
+                                    );
+                                }
                             }
                         }
-                        if (changes.FillColors != null)
+
                         {
-                            foreach (var cmd in changes.FillColors)
+                            var changes = _decodeMouseRecord.Consume(keyRecord, mouseState);
+                            if (changes.SetMousePos is Point pt)
                             {
-                                writeToOffScreen.FillColor(
-                                    cmd.R,
-                                    cmd.G,
-                                    cmd.B,
-                                    cmd.Width,
-                                    cmd.Height,
-                                    cmd.Tx,
-                                    cmd.Ty
-                                );
+                                mouseX = pt.X;
+                                mouseY = pt.Y;
+                            }
+                            if (changes.SetMouseBitmap is ReadOnlyMemory<byte> setMouseBitmap)
+                            {
+                                for (int y = 0; y < 32; y++)
+                                {
+                                    // bottom up to top down
+                                    setMouseBitmap.Span
+                                        .Slice(4 * 32 * y, 4 * 32)
+                                        .CopyTo(
+                                            mouseBitmap
+                                                .AsSpan(4 * 32 * (31 - y))
+                                        );
+                                }
                             }
                         }
                     }
@@ -190,7 +241,7 @@ namespace VideoConv4Win
                     form._progress.Value += 1;
                 }
 
-                ffmpegPipe0.Write(offscreen);
+                await EmitScreenBufferAsync(1);
                 ffmpegPipe0.Close();
 
                 form._status.Text = "Waiting for termination of FFmpeg.";

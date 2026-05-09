@@ -16,6 +16,7 @@ namespace VideoConv4Win.Helpers
             services.AddSingleton(ParseRect21.Default);
             services.AddSingleton(TileConfHelperV2.Default);
             services.AddSingleton<DecodeKeyRecord>();
+            services.AddSingleton<DecodeMouseRecord>();
             //NextService: services.AddSingleton<$ClassName$>();
             return services;
         }
