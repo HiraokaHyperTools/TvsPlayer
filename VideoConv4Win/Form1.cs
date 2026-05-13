@@ -122,6 +122,8 @@ namespace VideoConv4Win
 
             form.Show(this);
 
+            IFormattable playingAt = $"";
+
             async Task ProceedAsync()
             {
                 using var tvsStream = File.OpenRead(_tvsFile.Text);
@@ -143,6 +145,8 @@ namespace VideoConv4Win
                 form._progress.Value = 0;
                 form._progress.Maximum = struc.TvsChunks.Count;
 
+                var numFramesEmitted = 0;
+
                 async Task EmitScreenBufferAsync(int nTimes)
                 {
                     if (0 <= mouseX)
@@ -154,6 +158,7 @@ namespace VideoConv4Win
                     for (int x = 0; x < nTimes; x++)
                     {
                         await ffmpegPipe0.WriteAsync(offscreen);
+                        numFramesEmitted++;
                     }
 
                     if (0 <= mouseX)
@@ -161,6 +166,10 @@ namespace VideoConv4Win
                         writeToOffScreen.Bitblt(mouseSave, 32, 32, mouseX, mouseY);
                     }
                 }
+
+                var startTime = DateTime.Now;
+                var nextUpdatedTime = startTime.AddSeconds(1);
+                var maxFileSize = tvsStream.Length;
 
                 foreach (var chunkRef in struc.TvsChunks)
                 {
@@ -171,10 +180,27 @@ namespace VideoConv4Win
                     var keyFile = new byte[chunkRef.UncompressedSize];
                     await zlib.ReadExactlyAsync(keyFile);
 
+                    var tvsPositionPercent = chunkRef.ChunkPosition * 1.0 / Math.Max(1, maxFileSize);
+
                     var keyRecords = _parseKey.Parse(keyFile);
                     foreach (var keyRecord in keyRecords)
                     {
+                        playingAt = $"ChunkPosition {chunkRef.ChunkPosition} Timestamp {keyRecord.Timestamp}";
+
                         ct.ThrowIfCancellationRequested();
+
+                        {
+                            var now = DateTime.Now;
+                            if (nextUpdatedTime <= now)
+                            {
+                                nextUpdatedTime = now.AddSeconds(1);
+
+                                var eta = (0 < tvsPositionPercent)
+                                    ? startTime.AddTicks(Convert.ToInt64(now.Subtract(startTime).Ticks / tvsPositionPercent))
+                                    : now;
+                                form._status.Text = $"Rendering frames {numFramesEmitted}\n\nSince: {startTime}\nNow: {now}\nTvsFilePosition: {chunkRef.ChunkPosition:#,##0} / {maxFileSize:#,##0} ({tvsPositionPercent:P1})\nETA: {eta}";
+                            }
+                        }
 
                         var numFramesGenerated = timestampByFps.Reach(keyRecord.Timestamp);
                         if (numFramesGenerated != 0)
@@ -224,16 +250,10 @@ namespace VideoConv4Win
                             }
                             if (changes.SetMouseBitmap is ReadOnlyMemory<byte> setMouseBitmap)
                             {
-                                for (int y = 0; y < 32; y++)
-                                {
-                                    // bottom up to top down
-                                    setMouseBitmap.Span
-                                        .Slice(4 * 32 * y, 4 * 32)
-                                        .CopyTo(
-                                            mouseBitmap
-                                                .AsSpan(4 * 32 * (31 - y))
-                                        );
-                                }
+                                CopyMouseBitmap(
+                                    setMouseBitmap.Span,
+                                    mouseBitmap
+                                );
                             }
                         }
                     }
@@ -259,9 +279,30 @@ namespace VideoConv4Win
             }
             catch (Exception ex)
             {
-                form._status.Text = $"Error: {ex}";
+                form._status.Text = $"At {playingAt}, fatal error: {ex}";
             }
 
+        }
+
+        private void CopyMouseBitmap(ReadOnlySpan<byte> readerSpan, Span<byte> writerSpan)
+        {
+            var readerTopSpan = readerSpan;
+            // bottom up to top down, BGRA not RGBA
+            for (int y = 0; y < 32; y++)
+            {
+                readerSpan = readerTopSpan.Slice(4 * 32 * (31 - y));
+                for (int x = 0; x < 32; x++)
+                {
+                    // BGRA to RGBA
+                    writerSpan[2] = readerSpan[0];
+                    writerSpan[1] = readerSpan[1];
+                    writerSpan[0] = readerSpan[2];
+                    writerSpan[3] = readerSpan[3];
+
+                    writerSpan = writerSpan.Slice(4);
+                    readerSpan = readerSpan.Slice(4);
+                }
+            }
         }
 
         private void _tvsFileRef_Click(object sender, EventArgs e)

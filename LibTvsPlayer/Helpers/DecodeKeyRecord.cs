@@ -741,6 +741,12 @@ namespace LibTvsPlayer.Helpers
                 }
                 else if (control < 0xFF)
                 {
+                    if (rle.Length < 1)
+                    {
+                        // EOS
+                        return false;
+                    }
+
                     var count = rle[0];
                     rle = rle.Slice(1);
 
@@ -760,6 +766,12 @@ namespace LibTvsPlayer.Helpers
                 }
                 else
                 {
+                    if (rle.Length < 2)
+                    {
+                        // EOS
+                        return false;
+                    }
+
                     wideMode = true;
 
                     var what = rle[0];

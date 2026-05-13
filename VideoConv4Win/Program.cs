@@ -14,13 +14,13 @@ namespace VideoConv4Win
             var services = new ServiceCollection();
             services.AddTransient<Form1>();
             services.AddTransient<ConvertProgressForm>();
-            services.AddSingleton<Func<ConvertProgressForm>>(
+            services.AddTransient<Func<ConvertProgressForm>>(
                 sp =>
                     () =>
                         sp.GetRequiredService<ConvertProgressForm>()
             );
             services.AddVideoConv4Win();
-            var resolver = services.BuildServiceProvider();
+            using var resolver = services.BuildServiceProvider();
 
             // To customize application configuration such as set high DPI settings or default font,
             // see https://aka.ms/applicationconfiguration.
